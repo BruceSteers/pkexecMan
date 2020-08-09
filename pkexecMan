@@ -1,0 +1,380 @@
+#!/bin/bash
+
+# This is a setup script for managing pkexec policy rules
+# Written by Bruce Steers
+
+
+SUSER=$(w -h|awk '{print $1}')
+
+# Change read/save file names for testing purposes..
+POLSAVE="/usr/share/polkit-1/actions/org.freedesktop.policykit.pkexec.policy"
+POLREAD="/usr/share/polkit-1/actions/org.freedesktop.policykit.pkexec.policy"
+#POLSAVE="/home/$SUSER/Desktop/org.freedesktop.policykit.pkexec.policy"
+#POLREAD="/home/$SUSER/Desktop/org.freedesktop.policykit.pkexec.policy"
+
+SMODE="ZEN" # Zenity mode, interactive GUI forms for complete management
+NOZ=0
+SHH=""
+CHANGED=0
+
+if [ ${#} -ne 0 ]; then
+for ARG in "$@"; do
+ if [ "$ARG" = "-h" ] || [ "$ARG" = "-help" ]; then
+ 
+ echo "help...
+ Script written by Bruce Steers https://github.com/BruceSteers
+ pkexecMan , main commands list|add|delete=name
+ Launch with no args to use zenity dialogs to manage all pkexec run actions.
+
+pkexecMan add , auto add command, zenity will ask for any non-filled fields unless -noz argument given
+ then dafaults will be used (-p path must be supplied if -noz used)
+
+pkexecMan list , lists actions by name
+
+pkexecMan del=\"name\" , deletes rule of given name
+
+-q , quiet. suppresses terminal messages except warnings.
+-l , same as list
+-a , same as add
+-del=name , same as delete=name
+
+Additional parameters for 'add' command.. 
+
+ -p=\"/full path/to file\", supply full path to exe to add
+ 
+ -d=\"Description field\", default is <filename> application file
+ 
+ -m=\"Message field\", message given when asked for password, default is
+ <filename> requires SuperUser access
+ 
+ -noz , suppress non critical Zenity requesters asking for non filled in fields
+ uses defaults for description and message but -p path must be given.
+ 
+ Eg.
+pkexecMan -a :use zenity requesters to fill in all fields, add the selected command and exit
+pkexecMan -a -noz -p=\"/usr/bin/pluma\" :auto add pluma to list using defaults and exit
+pkexecMan : show the manager, lists all actions with modify, add or delete options"
+ exit
+
+ elif [[ "${ARG,,}" = "-p="* ]] || [[ "${ARG,,}" = "path="* ]]; then
+ PTH=${ARG#*=}
+ elif [ "${ARG,,}" = "-q" ]; then
+ SHH="yes"
+ elif [[ "${ARG,,}" = "-d="* ]]; then
+ DSC=${ARG#*=}
+ elif [[ "${ARG,,}" = "-m="* ]]; then
+ MES=${ARG#*=}
+ elif [ "${ARG,,}" = "-noz" ]; then 
+ NOZ=1
+ elif [ "${ARG,,}" = "-l" ] || [ "${ARG,,}" = "list" ]; then
+ SMODE="LST" # list mode, list fields and exit
+ elif  [ "${ARG,,}" = "-a" ] || [ "${ARG,,}" = "add" ]; then
+ SMODE="ADD" # add mode, auto add fields and exit
+ elif  [[ "${ARG,,}" = "-del="* ]] || [[ "${ARG,,}" = "delete="* ]]; then
+ ANAME=${ARG#*=}
+ 
+ SMODE="DEL" # del mode, auto delete a field and exit
+ else
+ echo "unknown arg! :'$ARG'"
+ fi
+done
+fi
+
+
+Msg() {
+if [ -z $SHH ]; then
+echo "$1"
+fi
+}
+
+AddField() {
+Msg "Adding New rule..
+Select the full path to the command you wish to add."
+CNT=0 ; SKIP=0; NTXT=""
+
+NNXT=""
+if [ "$SMODE" = "ADD" ] && [ ! -z $PTH ] ; then
+NEWAPP="$PTH"
+else
+NEWAPP=$(zenity --file-selection --filename="/usr/bin/NewApp" --title="Select app to add to pkexec list")
+fi
+
+if [ -z "$NEWAPP" ]; then
+Msg "Adding new rule cancelled."
+if [ "$SMODE" = "ADD" ]; then
+ByeBye
+fi
+return
+fi
+ANAME=${NEWAPP##*/}
+
+if [ -z $DSC ]; then
+TDSC="$ANAME application file"
+fi
+if [ -z $MES ]; then
+TMES="$ANAME requires SuperUser access"
+fi
+while [ $CNT -lt ${#FARRAY[@]} ]; do
+TXT="${FARRAY[$CNT]}"
+if [ $SKIP -eq 0 ]; then
+  if [[ "$TXT" = *"</policyconfig>"* ]]; then
+  NTXT="$NTXT  <action id=\"org.freedesktop.policykit.pkexec.run-$ANAME\">
+    <description>$TDSC</description>
+    <message>$TMES</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key=\"org.freedesktop.policykit.exec.path\">$NEWAPP</annotate>
+    <annotate key=\"org.freedesktop.policykit.exec.allow_gui\">TRUE</annotate>
+  </action>
+"
+  elif [[ "$TXT" = *"<action id="* ]]; then
+   if [[ "$TXT" = *"pkexec.run-$ANAME\""* ]]; then # found a duplicate item
+   zenity --question --text="Item '$ANAME'\nAlready Exists in the list\nDelete old copy or cancel saving" --ok-label="Delete Old" --cancel-label='Cancel Save'
+    if [ $? -eq 0 ]; then
+    SKIP=1
+    TXT=""
+    else
+    Msg "Cancelled Save"
+    ByeBye
+    return
+    fi # end zen question
+   else
+
+    if [ ! -z "${FARRAY[$CNT-1]}" ]; then
+    TXT="
+$TXT"
+    fi
+   fi
+  fi # end txt = action id
+ if [ $SKIP -eq 0 ]; then
+ NTXT="$NTXT$TXT
+"
+ fi
+elif [ $SKIP -eq  1 ]; then
+ if [[ "$TXT" = *"</action>"* ]]; then
+ SKIP=0
+ fi
+fi # end if SKIP
+((CNT++))
+done
+PFILE="$NTXT"
+
+if [ "$SMODE" = "ZEN" ]; then
+CHANGED=1
+fi
+
+ReadApps
+if [ $NOZ -eq 0 ]; then
+ if [ -z "$DSC" ]; then
+ EditField "description"
+ fi
+ if [ -z "$MES" ]; then
+ EditField "message"
+ fi
+fi
+
+MES="" ; DSC=""
+}
+
+DeleteField() {
+Msg "deleting rule '$ANAME'"
+CNT=0 ; MODE=0; FND=0; NTXT=""
+while [ $CNT -lt ${#FARRAY[@]} ]; do
+TXT="${FARRAY[$CNT]}"
+if [ $MODE -eq 0 ]; then
+  if [[ $TXT = *"pkexec.run-$ANAME"* ]]; then
+  FND=1
+  MODE=1
+  else
+   if [[ $TXT = *"<action id="* ]]; then
+   TXT="
+$TXT"
+   fi
+  NTXT="$NTXT$TXT
+"
+  fi
+else # MODE=1
+ if [[ $TXT = *"</action>"* ]]; then
+ MODE=0
+ fi
+fi
+((CNT++))
+done
+
+ if [ $FND -eq 0 ]; then
+ Msg "Item '$ANAME' not found!"
+ ByeBye
+ else
+ CHANGED=1
+ PFILE="$NTXT"
+ ReadApps
+ fi
+}
+
+EditField() {
+Msg "Editing $1 of $ANAME"
+CN=0 ; MODE=0 ; TAG=0
+while [ $CN -lt ${#FARRAY[@]} ]; do
+TXT="${FARRAY[$CN]}"
+if [ $MODE -eq 0 ]; then
+ if [[ $TXT = *"pkexec.run-$ANAME"* ]]; then
+ MODE=1
+ fi 
+elif [ $MODE -eq 1 ]; then
+ if [[ $TXT = *"<$1>"* ]]; then
+ DATA=${TXT#*>} ; DATA=${DATA%</*}
+ RES=$(zenity --entry --entry-text="$DATA" --text="Edit $1 for\n$ANAME" --width=300)
+  if [ ! -z "$RES" ]; then
+  FARRAY[$CN]="    <$1>$RES</$1>"
+  CHANGED=1
+  TAG="$CN"
+  fi
+ MODE=0 
+fi 
+fi
+((CN++))
+
+done
+WriteApps
+}
+
+SavePFile() {
+ Msg "Saving..."
+ sudo false
+  echo "$PFILE" >"$POLSAVE"
+  CHANGED=0
+  Msg "pkexec policy file saved."
+}
+
+ReadFile() {
+CHANGED=0
+PFILE=""
+if [ -e "$POLREAD" ]; then
+PFILE=$(cat "$POLREAD")
+fi
+}
+
+WriteApps() {
+WCNT=0 ; PFILE=""
+while [ $WCNT -lt ${#FARRAY[@]} ]; do
+PFILE="$PFILE${FARRAY[$WCNT]}
+"
+((WCNT++))
+done
+}
+
+ReadApps() {
+
+read -d '{' -a FARRAY <<< "$PFILE{"
+CNT=0 ; RULECOUNT=0; AppList=""
+while [ $CNT -lt ${#FARRAY[@]} ]; do
+TXT="${FARRAY[$CNT]}"
+
+ if [[ $TXT = *"<action id="* ]]; then
+  ((RULECOUNT++))
+ APP=${TXT#*exec.run-} ; APP=${APP%\"*}
+
+  if [ ! -z "$AppList" ]; then
+  AppList="$AppList|$APP"
+  else
+   if [ "$SMODE" = "LST" ]; then
+   echo "$APP"
+   else
+   AppList="$APP"
+   fi
+  fi
+ fi
+((CNT++))
+
+done
+
+#IFS=$OIFS
+}
+
+ByeBye() {
+IFS=$' \t\n'
+Msg "Exitting..."
+  if [ $SMODE = "ZEN" ] && [ $CHANGED -eq 1 ]; then
+  RES=$(zenity --question --text="Data has been changed but not saved!" --ok-label="Save Changes" --cancel-label="Don't Save" --extra-button="Don't quit")
+  RC=$?
+    if [ ! "$RES" = "" ]; then
+    LoadWindow
+    elif [ $RC -eq 0 ]; then
+    SavePFile
+    exit
+    else
+    exit
+    fi
+  else
+  exit
+  fi
+}
+
+LoadWindow() {
+
+FuncList="Select a Function Then Press Ok|Add New Rule|Edit Description|Edit Message|Delete Selected|Save and Exit"
+RES=$(zenity --forms --add-list="$RULECOUNT Existing rules found..." --list-values="|$AppList" --width=200 --height=300 --add-combo="Functions" --combo-values="$FuncList" --title="pkexec rule manager" --text="Select an existing rule to edit/delete\nor create a new rule\n\nSelect a function and press\nOK to start the function.." --cancel-label="Exit")
+
+ if [ -z "$RES" ]; then
+ ByeBye
+ fi
+FUNC=${RES#*|}
+ANAME=${RES%|*}
+ANAME=${ANAME%,*}
+
+if [ "$FUNC" = " " ]; then
+echo "No Function selected !"
+LoadWindow
+
+else
+
+ if [ "$FUNC" = "Add New Rule" ]; then
+ AddField
+ elif [ "$FUNC" = "Edit Description" ]; then
+  if [ -z "$ANAME" ]; then
+  echo "Nothing Selected"
+  else
+  EditField "description"
+  fi
+ elif [ "$FUNC" = "Edit Message" ]; then
+  if [ -z "$ANAME" ]; then
+  echo "Nothing Selected"
+  else
+  EditField "message"
+  fi
+ elif [ "$FUNC" = "Delete Selected" ]; then
+  if [ -z "$ANAME" ]; then
+  echo "Nothing Selected"
+  else
+  DeleteField
+  fi
+ elif [ "$FUNC" = "Save and Exit" ]; then
+  SavePFile
+  ByeBye
+ fi
+  LoadWindow
+fi
+}
+
+# main() {}
+IFS='
+'
+ReadFile
+ReadApps
+ if [ "$SMODE" = "ADD" ]; then
+ AddField
+ SavePFile
+
+ elif [ "$SMODE" = "DEL" ]; then
+ DeleteField
+ SavePFile
+
+ elif [ "$SMODE" = "LST" ]; then
+ false
+ else
+ LoadWindow
+ fi
+
