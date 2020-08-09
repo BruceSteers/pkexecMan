@@ -15,6 +15,11 @@ pkexec on the other hand is a bit more complicated as you have to set up a
 policy file for pkexec and add allowed apps to it before it will work.
 
 That's where this app comes in. 
+Once an app has been added, for example '/user/bin/pluma' (the default MATE text editor)
+You can then create a desktop launcher or menu item setting the command as...
+pkexec pluma %U
+Then a password requester will open before the app and elevate to SuperUser mode.
+
 Features. -- 
 Creates a new pkexec policy file if one does not exist or will load your existing one if you have one.
 
@@ -47,7 +52,7 @@ Additional parameters for 'add' command..
  -p="/full path/to file", supply full path to exe to add
  
  -d="Description field", default is <filename> application file
- 
+
  -m="Message field", message given when asked for password, default is
  <filename> requires SuperUser access
  
