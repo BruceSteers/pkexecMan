@@ -43,9 +43,13 @@ pkexecMan list , lists actions by name
 pkexecMan del="name" , deletes rule of given name
 
 -q , quiet. suppresses terminal messages except warnings.
+
 -l , same as list
+
 -a , same as add
+
 -del=name , same as delete=name
+
 
 Additional parameters for 'add' command.. 
 
@@ -60,7 +64,10 @@ Additional parameters for 'add' command..
  uses defaults for description and message but -p path must be given.
  
  Eg.
-pkexecMan -a :use zenity requesters to fill in all fields, add the selected command and exit
-pkexecMan -a -q -noz -p="/usr/bin/pluma" :auto add pluma to list silently using defaults and exit
-pkexecMan :show the manager, lists all actions with modify, add or delete options"
+ 
+pkexecMan -a :use zenity requesters to fill in all fields, add the selected command and exit.
+
+pkexecMan -a -q -noz -p="/usr/bin/pluma" :auto add pluma to list silently using defaults and exit.
+
+pkexecMan :show the manager, lists all actions with modify, add or delete options".
 
